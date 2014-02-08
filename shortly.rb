@@ -2,6 +2,7 @@ require 'sinatra'
 require "sinatra/reloader" if development?
 require 'active_record'
 require 'digest/sha1'
+require 'bcrypt'
 require 'pry'
 require 'uri'
 require 'open-uri'
@@ -11,17 +12,16 @@ require 'open-uri'
 # Configuration
 ###########################################################
 
+enable :sessions
+
 set :public_folder, File.dirname(__FILE__) + '/public'
 
 configure :development, :production do
     ActiveRecord::Base.establish_connection(
        :adapter => 'sqlite3',
-       :database => 'db/dev.sqlite3.db'
+       :database =>  'db/dev.sqlite3.db'
      )
 end
-
-# Turn on user sessions for authentication
-enable :sessions
 
 # Handle potential connection pool timeout issues
 after do
@@ -52,17 +52,70 @@ class Click < ActiveRecord::Base
     belongs_to :link, counter_cache: :visits
 end
 
+class User < ActiveRecord::Base
+    def authenticate(password)
+        self.password === BCrypt::Engine.hash_secret(password, self.salt)
+    end
+
+    before_create do |record|
+        record.salt     = BCrypt::Engine.generate_salt
+        record.password = BCrypt::Engine.hash_secret(record.password, record.salt)
+        record.token    = Digest::SHA1.hexdigest record.to_s
+    end
+end
+
+before '/' do
+    halt redirect('/login') unless logged_in?
+end
+
 ###########################################################
 # Routes
 ###########################################################
 
-get '/' do
-    erb :index
+['/', '/create'].each do |path|
+    get path do
+        erb :index
+    end
+end
+
+get '/signup' do
+    erb :signup
+end
+
+post '/signup' do
+    # find by username
+    user = User.find_by_username params[:username]
+    unless user.nil?
+        # redirect to /login
+        redirect '/login'
+    else
+        # create account
+        user = User.create params
+        redirect '/'
+    end
+end
+
+get '/login' do
+    erb :login
+end
+
+post '/login' do
+    user = User.find_by_username params[:username]
+    if user.nil?
+        redirect '/signup'
+    else
+        session[:identifier] = user.token if user.authenticate(params[:password])
+        redirect '/'
+    end
+end
+
+get '/logout' do
+    session[:identifier] = nil
+    redirect '/'
 end
 
 get '/links' do
-    # links = Link.order("created_at DESC")
-    links = Link.order("visits DESC")
+    links = Link.order("created_at DESC")
     links.map { |link|
         link.as_json.merge(base_url: request.base_url)
     }.to_json
@@ -105,4 +158,8 @@ def get_url_title url
     # Nokogiri::HTML.parse( read_url_head url ).title
     result = read_url_head(url).match(/<title>(.*)<\/title>/)
     result.nil? ? "" : result[1]
+end
+
+def logged_in?
+    !session[:identifier].nil?
 end

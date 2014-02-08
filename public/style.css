@@ -89,11 +89,6 @@ h1 {
   font-size: 12px;
 }
 
-.link .lastvisit {
-  color: #aaa;
-  font-size: 12px;
-}
-
 .link .info {
   margin-left: 55px;
 }
@@ -102,7 +97,7 @@ form {
   margin: 10px;
 }
 
-form input[type=text] {
+form input[type=text], form input[type=password] {
   width: 360px;
   display: block;
   font-size: 13px;
